@@ -100,17 +100,23 @@ const App: React.FC = () => {
     const objY = centerY - objectHeight;
     drawArrow(ctx, objX, centerY, objX, objY, '#10b981', 'Object');
 
-    if (Math.abs(image.imageDistance) < 2000) {
-      const imgX = centerX - image.imageDistance;
-      const imgY = centerY - image.imageHeight;
-      const color = image.isReal ? '#f59e0b' : '#f59e0b99';
-      ctx.setLineDash(image.isReal ? [] : [5, 5]);
-      drawArrow(ctx, imgX, centerY, imgX, imgY, color, image.isReal ? 'Real Image' : 'Virtual Image');
-      ctx.setLineDash([]);
+    const imgTipX = centerX - image.imageDistance;
+    let imgTipY = centerY - image.imageHeight;
+
+    // For non-plane mirrors, use the Ray Through F to determine exact image tip Y for visual consistency
+    if (mirrorType !== 'PLANE') {
+      const fX = centerX - focalLength;
+      const m2 = getIntersection(objX, objY, fX, centerY);
+      imgTipY = m2.y;
     }
 
-    const imgTipX = centerX - image.imageDistance;
-    const imgTipY = centerY - image.imageHeight;
+    if (Math.abs(image.imageDistance) < 2000) {
+      const imgX = centerX - image.imageDistance;
+      const color = image.isReal ? '#f59e0b' : '#f59e0b99';
+      ctx.setLineDash(image.isReal ? [] : [5, 5]);
+      drawArrow(ctx, imgX, centerY, imgX, imgTipY, color, image.isReal ? 'Real Image' : 'Virtual Image');
+      ctx.setLineDash([]);
+    }
 
     // Rays
     if (mirrorType === 'PLANE') {
@@ -121,7 +127,11 @@ const App: React.FC = () => {
       // Ray 1: Parallel
       const m1 = getIntersection(objX, objY, centerX + 100, objY);
       const fPoint = { x: centerX - focalLength, y: centerY };
-      const angle1 = Math.atan2(fPoint.y - m1.y, fPoint.x - m1.x);
+      let angle1 = Math.atan2(fPoint.y - m1.y, fPoint.x - m1.x);
+      // For Convex, fPoint is to the right, so we must reflect away from it to go left
+      if (mirrorType === 'CONVEX') {
+        angle1 = Math.atan2(m1.y - fPoint.y, m1.x - fPoint.x);
+      }
       const rx1 = m1.x + 1000 * Math.cos(angle1);
       const ry1 = m1.y + 1000 * Math.sin(angle1);
       drawRay(ctx, objX, objY, m1.x, m1.y, rx1, ry1, '#6366f1', !image.isReal, imgTipX, imgTipY);
@@ -129,13 +139,20 @@ const App: React.FC = () => {
       // Ray 2: Through F
       const fX = centerX - focalLength;
       const m2 = getIntersection(objX, objY, fX, centerY);
+      // The reflected ray should be horizontal (y = m2.y) and to the left
       drawRay(ctx, objX, objY, m2.x, m2.y, m2.x - 1000, m2.y, '#8b5cf6', !image.isReal, imgTipX, imgTipY);
 
       // Ray 3: Through C
       const cX = centerX - 2 * focalLength;
       const m3 = getIntersection(objX, objY, cX, centerY);
-      const angle3 = Math.atan2(m3.y - objY, m3.x - objX);
-      drawRay(ctx, objX, objY, m3.x, m3.y, objX - 1000 * Math.cos(angle3), objY - 1000 * Math.sin(angle3), '#ec4899', !image.isReal, imgTipX, imgTipY);
+      // Reflects back through its own path line, must go left
+      const angle3 = Math.atan2(m3.y - centerY, m3.x - cX);
+      const rx3 = m3.x + 1000 * Math.cos(angle3);
+      const ry3 = m3.y + 1000 * Math.sin(angle3);
+      // If rx3 is to the right, invert it to go left
+      const finalRx3 = rx3 > m3.x ? m3.x - 1000 * Math.cos(angle3) : rx3;
+      const finalRy3 = rx3 > m3.x ? m3.y - 1000 * Math.sin(angle3) : ry3;
+      drawRay(ctx, objX, objY, m3.x, m3.y, finalRx3, finalRy3, '#ec4899', !image.isReal, imgTipX, imgTipY);
     }
 
   }, [mirrorType, focalLength, objectDistance, objectHeight, image]);
@@ -153,10 +170,13 @@ const App: React.FC = () => {
 
   function drawRay(ctx: CanvasRenderingContext2D, x1: number, y1: number, mx: number, my: number, rx: number, ry: number, color: string, showVirtual: boolean, vx: number, vy: number) {
     ctx.strokeStyle = color;
+    // Incident ray
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(mx, my); ctx.stroke();
+    // Reflected ray
     ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(rx, ry); ctx.stroke();
     if (showVirtual) {
       ctx.setLineDash([2, 4]);
+      // Virtual extension behind the mirror
       ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(vx, vy); ctx.stroke();
       ctx.setLineDash([]);
     }
